@@ -215,7 +215,7 @@ def check_count(camera_id):
     if peoplec_count[camera_id] > threshold[camera_id]:
         # Trigger alert
         print("########################## Threshold exceeded! Triggering alert, stampede possibility...")
-        send_data({"alert": f"Threshold exceeded! Triggering alert, stampede possibility!!.","type":"alert","camera_id":camera_id})
+        send_data({"alert": f"Threshold exceeded! Triggering alert, stampede possibility!! for camera {camera_id}.","type":"alert","severity":"critical","camera_id":camera_id})
     else:
         percent = (peoplec_count[camera_id]/threshold[camera_id])*100
         if percent>80:
@@ -224,5 +224,8 @@ def check_count(camera_id):
             if(min_cam != camera_id):
                 print("---------------------------------------")
                 print(f"Consider redirecting some crowd to camera {min_cam} area.")
-                send_data({"alert": f"Consider redirecting some crowd to camera {min_cam} area.","type":"alert","camera_id":camera_id})
+                # send_data({"alert": f"Consider redirecting some crowd to camera {min_cam} area.","type":"alert","camera_id":camera_id})
                 print("---------------------------------------")
+
+
+# send_data({"alert": f"Threshold exceeded! Triggering alert, stampede possibility!! for camera 1.","type":"alert","severity":"critical","camera_id":1})
