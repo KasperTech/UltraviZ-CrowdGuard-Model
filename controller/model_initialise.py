@@ -6,6 +6,7 @@ from torchvision import transforms
 import numpy as np
 import matplotlib.pyplot as plt
 import cv2
+import threading
 
 class CSRNet(nn.Module):
     def __init__(self, load_weights=False):
@@ -68,7 +69,7 @@ class CSRNet(nn.Module):
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 model = CSRNet().to(device)
-checkpoint = torch.load("CSRNet.pth", map_location=device)
+checkpoint = torch.load("controller/CSRNet.pth", map_location=device)
 model.load_state_dict(checkpoint)
 model.eval()
 
@@ -86,10 +87,8 @@ def load_image(path):
 
 
 
-def preprocess_image(path,l1,l2):
+def preprocess_image(image,l1,l2):
     # img = Image.open(path).convert("RGB")
-    image = cv2.imread(path)
-    image = cv2.resize(image, (1024, 576), interpolation=cv2.INTER_CUBIC)
     height,width,_ = image.shape
     top = (height//2)-l1
     bottom = (height//2)+l2
@@ -104,9 +103,9 @@ def preprocess_image(path,l1,l2):
 # ------------------------------
 # 4. Inference &  Visualization
 # ------------------------------
-def run_inference(image_path,l1,l2):
+def run_inference(frame,l1,l2):
     # Load and preprocess
-    orig_img, img_tensor, height, width = preprocess_image(image_path,l1,l2)
+    orig_img, img_tensor, height, width = preprocess_image(frame,l1,l2)
     img_tensor = img_tensor.to(device)
 
     with torch.no_grad():
@@ -114,20 +113,114 @@ def run_inference(image_path,l1,l2):
 
         density_map = output.squeeze().cpu().numpy()
         density_map = np.clip(density_map, 0, None)
-        print(density_map,'density map')
         count = np.sum(density_map)
 
-    print(f"Estimated Crowd Count: {int(count)}")
-    cv2.putText(orig_img, f"Crowd Count: {int(count)}", (20, 40),
-                cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 3)
-
-    # Show with OpenCV
-    cv2.line(orig_img, (0, (height//2) - l1), (width, (height//2) - l1),
-                         (0, 255, 0), thickness=2)
-    cv2.line(orig_img, (0, (height//2) + l2), (width, (height//2) + l2),
-                         (0, 255, 0), thickness=2)
-    cv2.imshow("Crowd Density Estimation", orig_img)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    return count
+  
+    # cv2.waitKey(0)
+    # cv2.destroyAllWindows()
 
 
+# def run_video(stream,l1,l2):
+#     cap = cv2.VideoCapture(stream)
+#     i=0
+
+#     while True:
+#         ret, frame = cap.read()
+#         print(ret,'frame')
+#         if not ret:
+#             break
+#         frame = cv2.resize(frame, (1024, 576), interpolation=cv2.INTER_CUBIC)
+
+#         count = run_inference(frame,l1,l2)
+#         height, width, _ = frame.shape
+
+#         # Save frame to a temporary file
+
+#         cv2.putText(frame, f"Crowd Count: {int(count)}", (20, 40),
+#                 cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 255), 3)
+
+#         # Show with OpenCV
+#         cv2.line(frame, (0, (height//2) - l1), (width, (height//2) - l1),
+#                             (0, 255, 0), thickness=2)
+#         cv2.line(frame, (0, (height//2) + l2), (width, (height//2) + l2),
+#                             (0, 255, 0), thickness=2)
+#         cv2.imshow("Crowd Density Estimation", frame)
+#         i = i + 1
+
+#         print(i,'ii')
+     
+#         if cv2.waitKey(1) & 0xFF == ord('q'):
+#             break
+
+#     cap.release()
+#     cv2.destroyAllWindows()
+#     return
+
+
+
+# Store active camera streams
+cameras = {}       # { cam_id: VideoCapture }
+frames = {}        # { cam_id: latest frame (bytes) }
+locks = {}         # { cam_id: threading.Lock() }
+running = {}
+threshold={}       # { cam_id: bool }
+
+
+
+def camera_loop(cam_id, stream_url,l1,l2,):
+    cap = cv2.VideoCapture(stream_url)
+    if not cap.isOpened():
+        print(f"Cannot open {stream_url}")
+        return
+
+    running[cam_id] = True
+    # threshold[cam_id] = threshold
+    locks[cam_id] = threading.Lock()
+
+    while running[cam_id]:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        frame = cv2.resize(frame, (1024, 576), interpolation=cv2.INTER_CUBIC)
+
+        count = run_inference(frame,l1,l2)
+        print(f"Estimated Crowd Count: {int(count)} for Camera ID: {cam_id}")
+
+        height, width, _ = frame.shape
+
+        # Save frame to a temporary file
+
+        cv2.putText(frame, f"Crowd Count: {int(count)}", (20, 40),
+                cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 255), 3)
+
+        # Show with OpenCV
+        cv2.line(frame, (0, (height//2) - l1), (width, (height//2) - l1),
+                            (0, 255, 0), thickness=2)
+        cv2.line(frame, (0, (height//2) + l2), (width, (height//2) + l2),
+                            (0, 255, 0), thickness=2)
+        _, buffer = cv2.imencode(".jpg", frame)
+        with locks[cam_id]:
+            frames[cam_id] = buffer.tobytes()
+
+    cap.release()
+    with locks[cam_id]:
+        frames.pop(cam_id, None)
+
+
+def generate_frames(cam_id):
+    while True:
+        if cam_id not in frames:
+            continue
+        with locks[cam_id]:
+            frame = frames[cam_id]
+        yield (b"--frame\r\n"
+               b"Content-Type: image/jpeg\r\n\r\n" + frame + b"\r\n")
+        
+
+def stop_camera_fun(cam_id):
+    if cam_id in running:
+        running[cam_id] = False
+        print(f"Stopping camera {cam_id}")
+    else:
+        print(f"Camera {cam_id} not found")        
