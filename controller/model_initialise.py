@@ -8,6 +8,22 @@ import matplotlib.pyplot as plt
 import cv2
 import threading
 import time
+import socketio
+# Setting up socket for communication
+
+sio = socketio.Client()
+
+@sio.event
+def connect():
+    print("Connected to Node.js Socket.IO server")
+
+sio.connect("http://localhost:5050")
+
+def send_data(alert):
+    sio.emit('alert', alert)
+    print("Alert sent to Node.js server:", alert)
+
+
 
 class CSRNet(nn.Module):
     def __init__(self, load_weights=False):
@@ -131,7 +147,7 @@ peoplec_count={}
 
 
 
-def camera_loop(cam_id, stream_url,l1,l2,threshold_value=60):
+def camera_loop(cam_id, stream_url,l1,l2,threshold_value=40):
     cap = cv2.VideoCapture(stream_url)
     if not cap.isOpened():
         print(f"Cannot open {stream_url}")
@@ -199,6 +215,7 @@ def check_count(camera_id):
     if peoplec_count[camera_id] > threshold[camera_id]:
         # Trigger alert
         print("########################## Threshold exceeded! Triggering alert, stampede possibility...")
+        send_data({"alert": f"Threshold exceeded! Triggering alert, stampede possibility!!.","type":"alert","camera_id":camera_id})
     else:
         percent = (peoplec_count[camera_id]/threshold[camera_id])*100
         if percent>80:
@@ -207,4 +224,5 @@ def check_count(camera_id):
             if(min_cam != camera_id):
                 print("---------------------------------------")
                 print(f"Consider redirecting some crowd to camera {min_cam} area.")
+                send_data({"alert": f"Consider redirecting some crowd to camera {min_cam} area.","type":"alert","camera_id":camera_id})
                 print("---------------------------------------")
