@@ -144,10 +144,11 @@ running = {}
 threshold={}       # { threshold: bool }
 camera_count={}
 peoplec_count={}
+camera_name={}
 
 
 
-def camera_loop(cam_id, stream_url,l1,l2,threshold_value=40):
+def camera_loop(cam_id, stream_url,l1,l2,threshold_value=100,camera_name_value="Camera"):
     cap = cv2.VideoCapture(stream_url)
     if not cap.isOpened():
         print(f"Cannot open {stream_url}")
@@ -158,13 +159,14 @@ def camera_loop(cam_id, stream_url,l1,l2,threshold_value=40):
     locks[cam_id] = threading.Lock()
     camera_count[cam_id] = 0
     peoplec_count[cam_id] = 0
+    camera_name[cam_id] = camera_name_value
 
     while running[cam_id]:
         ret, frame = cap.read()
         if not ret:
             break
         frame = cv2.resize(frame, (1024, 576), interpolation=cv2.INTER_CUBIC)
-        if(camera_count[cam_id]%10==0):
+        if(camera_count[cam_id]%50==0):
             peoplec_count[cam_id] = run_inference(frame,l1,l2)
             check_count(cam_id)
             print(f"Estimated Crowd Count: {int(peoplec_count[cam_id])} for Camera ID: {cam_id}")
@@ -173,7 +175,7 @@ def camera_loop(cam_id, stream_url,l1,l2,threshold_value=40):
         
 
         height, width, _ = frame.shape
-        cv2.putText(frame, f"Estimated Crowd Count: {int(peoplec_count[cam_id])} for Camera ID: {cam_id}", (20, 40),
+        cv2.putText(frame, f"Estimated Crowd Count: {int(peoplec_count[cam_id])}", (20, 40),
                 cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 255), 2)
         # Show with OpenCV
         cv2.line(frame, (0, (height//2) - l1), (width, (height//2) - l1),
@@ -214,18 +216,15 @@ def check_count(camera_id):
     print(f"Camera ID: {camera_id} has count {peoplec_count[camera_id]}")
     if peoplec_count[camera_id] > threshold[camera_id]:
         # Trigger alert
-        print("########################## Threshold exceeded! Triggering alert, stampede possibility...")
-        send_data({"alert": f"Threshold exceeded! Triggering alert, stampede possibility!! for camera {camera_id}.","type":"alert","severity":"critical","camera_id":camera_id})
+        send_data({"alert": f"Threshold exceeded! Triggering alert, stampede possibility!! for camera {camera_name[camera_id]}.","type":"alert","severity":"critical","camera_id":camera_id})
     else:
         percent = (peoplec_count[camera_id]/threshold[camera_id])*100
         if percent>80:
             min_cam = min(peoplec_count, key=peoplec_count.get)
             print(f"Camera with minimum count: {min_cam} ({peoplec_count[min_cam]})")
             if(min_cam != camera_id):
-                print("---------------------------------------")
-                print(f"Consider redirecting some crowd to camera {min_cam} area.")
                 # send_data({"alert": f"Consider redirecting some crowd to camera {min_cam} area.","type":"alert","camera_id":camera_id})
                 print("---------------------------------------")
 
 
-# send_data({"alert": f"Threshold exceeded! Triggering alert, stampede possibility!! for camera 1.","type":"alert","severity":"critical","camera_id":1})
+# send_data({"alert": f"Threshold exceeded! Triggering alert, stampede possibility!!","type":"alert","severity":"critical","camera_name":"Test Camera","camera_id":"Test123"})

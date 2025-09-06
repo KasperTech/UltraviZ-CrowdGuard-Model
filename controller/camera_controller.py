@@ -12,8 +12,8 @@ def start_camera():
     data = request.get_json()
     # print(data['camera_id'], data['stream_url'])
     thread = threading.Thread(
-        target=camera_loop, 
-        args=(data['camera_id'],data['stream_url'], data['l1'], data['l2']), 
+        target=camera_loop,
+        args=(data['camera_id'],data['stream_url'], data['l1'], data['l2'],data['threshold'],data['camera_name']),
         daemon=True  # dies when main process exits
     )
     thread.start()
