@@ -20,7 +20,7 @@ def connect():
 sio.connect("http://localhost:5050")
 
 def send_data(alert):
-    sio.emit('alert', alert)
+    sio.emit(alert["type"], alert)
     print("Alert sent to Node.js server:", alert)
 
 
@@ -132,7 +132,7 @@ def run_inference(frame,l1,l2):
         density_map = np.clip(density_map, 0, None)
         count = np.sum(density_map)
 
-    return count
+    return count,density_map
 
 
 
@@ -145,10 +145,12 @@ threshold={}       # { threshold: bool }
 camera_count={}
 peoplec_count={}
 camera_name={}
+heatmap_frames = {}
 
 
 
 def camera_loop(cam_id, stream_url,l1,l2,threshold_value=100,camera_name_value="Camera"):
+    print("STARTING CAMERA:", cam_id, stream_url)
     cap = cv2.VideoCapture(stream_url)
     if not cap.isOpened():
         print(f"Cannot open {stream_url}")
@@ -167,11 +169,13 @@ def camera_loop(cam_id, stream_url,l1,l2,threshold_value=100,camera_name_value="
             break
         frame = cv2.resize(frame, (1024, 576), interpolation=cv2.INTER_CUBIC)
         if(camera_count[cam_id]%50==0):
-            peoplec_count[cam_id] = run_inference(frame,l1,l2)
+            peoplec_count[cam_id],density_map = run_inference(frame,l1,l2)
             check_count(cam_id)
             print(f"Estimated Crowd Count: {int(peoplec_count[cam_id])} for Camera ID: {cam_id}")
         
         camera_count[cam_id] += 1
+        heatmap = create_heatmap(density_map, frame.shape)
+
         
 
         height, width, _ = frame.shape
@@ -183,8 +187,11 @@ def camera_loop(cam_id, stream_url,l1,l2,threshold_value=100,camera_name_value="
         cv2.line(frame, (0, (height//2) + l2), (width, (height//2) + l2),
                             (0, 255, 0), thickness=2)
         _, buffer = cv2.imencode(".jpg", frame)
+        _, heatmap_buffer = cv2.imencode(".jpg", heatmap)
+
         with locks[cam_id]:
             frames[cam_id] = buffer.tobytes()
+            heatmap_frames[cam_id] = heatmap_buffer.tobytes()
         time.sleep(0.03)
     
 
@@ -192,7 +199,24 @@ def camera_loop(cam_id, stream_url,l1,l2,threshold_value=100,camera_name_value="
 
     with locks[cam_id]:
         frames.pop(cam_id, None)
+        heatmap_frames.pop(cam_id, None)
 
+
+
+def create_heatmap(density_map, frame_shape):   
+    height, width, _ = frame_shape
+
+    # Normalize density map (avoid negatives)
+    density_map = np.maximum(density_map, 0)
+    density_map = density_map / (density_map.max() + 1e-5)
+
+    # Resize to match frame size
+    density_map_resized = cv2.resize(density_map, (width, height))
+
+    # Convert to colormap (JET gives nice heatmap colors)
+    heatmap = cv2.applyColorMap((density_map_resized * 255).astype(np.uint8), cv2.COLORMAP_AUTUMN)
+
+    return heatmap
 
 def generate_frames(cam_id):
     while True:
@@ -203,6 +227,18 @@ def generate_frames(cam_id):
         yield (b"--frame\r\n"
                b"Content-Type: image/jpeg\r\n\r\n" + frame + b"\r\n")
         
+def generate_heatmap_stream(cam_id):
+    while True:
+        with locks[cam_id]:
+            if cam_id in heatmap_frames:
+                frame = heatmap_frames[cam_id]
+            else:
+                continue
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+
+
+
 
 def stop_camera_fun(cam_id):
     if cam_id in running:
@@ -213,6 +249,7 @@ def stop_camera_fun(cam_id):
 
 
 def check_count(camera_id):
+    send_data({"camera_id":camera_id,"count":int(peoplec_count[camera_id]),"type":"count"})
     print(f"Camera ID: {camera_id} has count {peoplec_count[camera_id]}")
     if peoplec_count[camera_id] > threshold[camera_id]:
         # Trigger alert
@@ -223,7 +260,7 @@ def check_count(camera_id):
             min_cam = min(peoplec_count, key=peoplec_count.get)
             print(f"Camera with minimum count: {min_cam} ({peoplec_count[min_cam]})")
             if(min_cam != camera_id):
-                # send_data({"alert": f"Consider redirecting some crowd to camera {min_cam} area.","type":"alert","camera_id":camera_id})
+                send_data({"alert": f"Consider redirecting some crowd to camera {camera_name[min_cam]} from {camera_name[camera_id]} area.","type":"alert","camera_id":camera_id,"severity":"medium"})
                 print("---------------------------------------")
 
 

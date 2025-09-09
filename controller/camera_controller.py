@@ -1,6 +1,6 @@
 from flask import Blueprint, jsonify,request,send_file,Response
 import os
-from controller.model_initialise import camera_loop,generate_frames,stop_camera_fun
+from controller.model_initialise import camera_loop,generate_frames,stop_camera_fun,generate_heatmap_stream
 import threading
 
 
@@ -31,11 +31,8 @@ def stop_camera():
 
 def get_heatmap(camera_id):
     # Logic to get heatmap data
-    temp_folder = 'temp'
-    if not os.path.exists(temp_folder):
-        return jsonify({"error": "Temp folder does not exist"}), 500
-    else:
-        return send_file(os.path.join(temp_folder, f"{camera_id}_heatmap.jpg"), mimetype='image/jpeg')
+    return Response(generate_heatmap_stream(camera_id),
+                    mimetype="multipart/x-mixed-replace; boundary=frame")
 
 
 def get_video_feed(cam_id):
