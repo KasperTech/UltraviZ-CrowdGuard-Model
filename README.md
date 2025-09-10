@@ -1,5 +1,11 @@
 # UltraviZ CrowdGuard Model server
 
+## Other repository links
+
+There are 3 repository for the particular submissions
+The currrent repository is of model server
+For Backend server - https://github.com/KasperTech/UltraviZ-CrowdGuard-Backend
+For Frontend server - https://github.com/KasperTech/UltraviZ-CrowdGuard-Frontend
 
 ## Overview
 

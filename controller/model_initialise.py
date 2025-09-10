@@ -10,6 +10,7 @@ import threading
 import time
 import socketio
 # Setting up socket for communication
+import asyncio
 
 sio = socketio.Client()
 
@@ -165,6 +166,8 @@ def camera_loop(cam_id, stream_url,l1,l2,threshold_value=100,camera_name_value="
 
     while running[cam_id]:
         ret, frame = cap.read()
+        fps = cap.get(cv2.CAP_PROP_FPS)
+
         if not ret:
             break
         frame = cv2.resize(frame, (1024, 576), interpolation=cv2.INTER_CUBIC)
@@ -174,7 +177,7 @@ def camera_loop(cam_id, stream_url,l1,l2,threshold_value=100,camera_name_value="
             print(f"Estimated Crowd Count: {int(peoplec_count[cam_id])} for Camera ID: {cam_id}")
         
         camera_count[cam_id] += 1
-        heatmap = create_heatmap(density_map, frame.shape)
+        # heatmap = create_heatmap(density_map, frame.shape)
 
         
 
@@ -187,12 +190,12 @@ def camera_loop(cam_id, stream_url,l1,l2,threshold_value=100,camera_name_value="
         cv2.line(frame, (0, (height//2) + l2), (width, (height//2) + l2),
                             (0, 255, 0), thickness=2)
         _, buffer = cv2.imencode(".jpg", frame)
-        _, heatmap_buffer = cv2.imencode(".jpg", heatmap)
+        # _, heatmap_buffer = cv2.imencode(".jpg", heatmap)
 
         with locks[cam_id]:
             frames[cam_id] = buffer.tobytes()
-            heatmap_frames[cam_id] = heatmap_buffer.tobytes()
-        time.sleep(0.03)
+            # heatmap_frames[cam_id] = heatmap_buffer.tobytes()
+        time.sleep(1/fps)
     
 
     cap.release()
@@ -250,7 +253,6 @@ def stop_camera_fun(cam_id):
 
 def check_count(camera_id):
     send_data({"camera_id":camera_id,"count":int(peoplec_count[camera_id]),"type":"count"})
-    print(f"Camera ID: {camera_id} has count {peoplec_count[camera_id]}")
     if peoplec_count[camera_id] > threshold[camera_id]:
         # Trigger alert
         send_data({"alert": f"Threshold exceeded! Triggering alert, stampede possibility!! for camera {camera_name[camera_id]}.","type":"alert","severity":"critical","camera_id":camera_id})
